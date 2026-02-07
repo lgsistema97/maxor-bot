@@ -28,9 +28,9 @@ async function startBot() {
 
     // --- LÓGICA DE PAIRING CODE ---
     if (!sock.authState.creds.registered) {
-        console.log(`📢 GENERANDO CÓDIGO PARA: ${MI_NUMERO}`);
+        console.log(`📢 GENERANDO CÓDIGO PARA: ${584120198096}`);
         await delay(5000); // Esperamos a que el socket esté listo
-        const code = await sock.requestPairingCode(MI_NUMERO);
+        const code = await sock.requestPairingCode(58410198096);
         console.log(`✅ TU CÓDIGO DE VINCULACIÓN ES: ${code}`);
         console.log(`💡 PASOS: Abre WhatsApp > Dispositivos vinculados > Vincular con número de teléfono > Escribe el código: ${code}`);
     }
