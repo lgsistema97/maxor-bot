@@ -2,8 +2,7 @@ const {
     default: makeWASocket, 
     useMultiFileAuthState, 
     downloadContentFromMessage, 
-    DisconnectReason,
-    BrowseSync 
+    DisconnectReason 
 } = require("@whiskeysockets/baileys");
 const qrcode = require("qrcode-terminal");
 const pino = require("pino");
@@ -12,19 +11,19 @@ const axios = require('axios');
 const FormData = require('form-data');
 const express = require('express');
 
-// --- 1. CONFIGURACIÓN DE SERVIDOR PARA RENDER ---
+// --- 1. SERVIDOR EXPRESS PARA RENDER ---
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
-    res.send('🚀 Maxor Bot está vivo y operando.');
+    res.send('🚀 Maxor Bot está operando en la nube.');
 });
 
 app.listen(port, () => {
-    console.log(`📡 Servidor Web escuchando en puerto ${port}`);
+    console.log(`📡 Puerto activo: ${port}`);
 });
 
-// --- 2. CONFIGURACIÓN DE IA (GROQ) ---
+// --- 2. CONFIGURACIÓN IA (GROQ) ---
 const GROQ_API_KEY = "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";
 const MODELO = "llama-3.3-70b-versatile";
 
@@ -41,7 +40,7 @@ function guardarMemoria() {
 
 let temporizadores = {};
 
-// --- 3. FUNCIONES DE AUDIO ---
+// --- 3. TRANSCRIPCIÓN DE AUDIO ---
 async function transcribirAudio(stream) {
     const tempFile = `./audio_${Date.now()}.ogg`;
     try {
@@ -65,26 +64,26 @@ async function transcribirAudio(stream) {
         return res.data.text;
     } catch (e) {
         if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-        console.error("❌ Error transcribiendo:", e.message);
+        console.error("❌ Error Audio:", e.message);
         return null;
     }
 }
 
-// --- 4. LÓGICA DE INTELIGENCIA ARTIFICIAL ---
+// --- 4. FUNCIÓN IA ---
 async function hablarConGroq(chatId, textoUsuario, nombreWhatsApp) {
     if (!memoria[chatId]) {
         memoria[chatId] = { 
             historial: [], 
-            datosPaciente: { nombre: nombreWhatsApp, especialidad: "No definida" } 
+            datosPaciente: { nombre: nombreWhatsApp } 
         };
     }
     
     memoria[chatId].historial.push({ role: "user", content: textoUsuario });
     if (memoria[chatId].historial.length > 12) memoria[chatId].historial.shift();
 
-    const systemPrompt = `Eres Maxor, asistente de Clínica Maxilofacial Maxor en El Hatillo. 
-    Usa SIEMPRE 1 o 2 emojis (🦷, ✨). Si ya te presentaste, no repitas tu nombre. 
-    Planes: Gold $260, Básico $180. Ubicados en Torre Q.`;
+    const systemPrompt = `Eres Maxor, asistente de Clínica Maxilofacial Maxor en El Hatillo. 🦷
+    Usa emojis ✨. Responde brevemente.
+    Precios: Plan Gold $260, Básico $180.`;
 
     try {
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
@@ -100,23 +99,21 @@ async function hablarConGroq(chatId, textoUsuario, nombreWhatsApp) {
         guardarMemoria();
         return respuesta;
     } catch (e) { 
-        return "¡Hola! Soy Maxor. ✨ ¿En qué puedo ayudarte con tu salud bucal hoy? 🦷"; 
+        return "¡Hola! ✨ ¿En qué puedo ayudarte hoy en Clínica Maxor? 🦷"; 
     }
 }
 
-// --- 5. NÚCLEO DEL BOT (WHATSAPP) ---
+// --- 5. LÓGICA PRINCIPAL DEL BOT ---
 async function startBot() {
-    // CAMBIO DE NOMBRE DE CARPETA PARA FORZAR QR NUEVO
-    const { state, saveCreds } = await useMultiFileAuthState('sesion_render_final_v5');
+    // Usamos una carpeta de sesión única para evitar el error de vinculación
+    const { state, saveCreds } = await useMultiFileAuthState('sesion_render_final_v6');
 
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: "silent" }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"], // Identificación compatible
+        browser: ["Ubuntu", "Chrome", "20.0.04"],
         printQRInTerminal: true,
-        connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 0,
-        keepAliveIntervalMs: 10000
+        connectTimeoutMs: 60000
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -125,17 +122,16 @@ async function startBot() {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
-            console.log("📢 NUEVO CÓDIGO QR GENERADO:");
-            console.log(`🔗 ESCANEA AQUÍ: https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300`);
+            console.log("📢 ESCANEA ESTE QR PARA CONECTAR:");
+            console.log(`🔗 LINK DIRECTO: https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300`);
             qrcode.generate(qr, { small: true });
         }
 
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('❌ Conexión cerrada. ¿Reconectando?:', shouldReconnect);
             if (shouldReconnect) startBot();
         } else if (connection === 'open') {
-            console.log('✅ MAXOR ONLINE (IA + AUDIO + N8N READY)');
+            console.log('✅ CONECTADO EXITOSAMENTE A WHATSAPP');
         }
     });
 
@@ -148,44 +144,38 @@ async function startBot() {
         const nombreWA = msg.pushName || "Paciente";
         let text = msg.message.conversation || msg.message.extendedTextMessage?.text;
 
-        // Procesar Audio
+        // Si es audio
         if (msg.message.audioMessage) {
-            console.log("🎤 Procesando nota de voz...");
             const stream = await downloadContentFromMessage(msg.message.audioMessage, 'audio');
             text = await transcribirAudio(stream);
-            console.log(`📝 Transcripción: ${text}`);
         }
 
         if (text) {
-            // Cancelar recordatorio si el usuario responde
             if (temporizadores[chatId]) clearTimeout(temporizadores[chatId]);
 
-            // Obtener respuesta de IA
             const respuesta = await hablarConGroq(chatId, text, nombreWA);
-            
-            // Enviar respuesta a WhatsApp
             await sock.sendMessage(chatId, { text: respuesta });
 
-            // ENVIAR DATOS A N8N
+            // --- ENVÍO A TU NUEVO WEBHOOK DE N8N ---
             try {
-                await axios.post("https://luisslam.app.n8n.cloud/webhook-test/test-paciente", {
+                await axios.post("https://themiz97.app.n8n.cloud/webhook-test/test-pacientes", {
                     nombre: nombreWA,
                     telefono: chatId.split('@')[0],
                     mensaje_usuario: text,
-                    respuesta_maxor: respuesta,
+                    respuesta_ia: respuesta,
                     tipo: msg.message.audioMessage ? "audio" : "texto"
                 });
-                console.log("🚀 Datos sincronizados con n8n");
+                console.log("🚀 Datos enviados a n8n");
             } catch (e) {
-                console.log("⚠️ Error enviando a n8n");
+                console.log("⚠️ n8n no recibió los datos (revisa si el Test está activo)");
             }
 
-            // Temporizador de seguimiento (30 min)
+            // Seguimiento automático
             temporizadores[chatId] = setTimeout(async () => {
-                await sock.sendMessage(chatId, { text: "Estaré por aquí si decides agendar tu cita en Clínica Maxor. ¡Feliz día! 🦷" });
+                await sock.sendMessage(chatId, { text: "Estaré por aquí si decides agendar tu cita en Clínica Maxor. ✨🦷" });
                 if(memoria[chatId]) memoria[chatId].historial = []; 
                 guardarMemoria();
-            }, 30 * 60 * 1000);
+            }, 45 * 60 * 1000);
         }
     });
 }
