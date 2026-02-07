@@ -4,10 +4,12 @@
   "main": "index.js",
   "dependencies": {
     "@whiskeysockets/baileys": "latest",
+    "@google/generative-ai": "^0.1.0",
     "axios": "latest",
     "qrcode-terminal": "latest",
     "pino": "latest",
-    "express": "latest"
+    "express": "latest",
+    "form-data": "latest"
   },
   "scripts": {
     "start": "node index.js"
