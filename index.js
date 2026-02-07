@@ -90,7 +90,7 @@ async function hablarConGroq(chatId, textoUsuario, nombreWhatsApp) {
 }
 
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('sesion_render_final');
+    const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_fria_v1');
     const sock = makeWASocket({ 
         auth: state, 
         logger: pino({ level: "silent" }), 
