@@ -5,46 +5,51 @@ const fs = require('fs');
 const axios = require('axios');
 const FormData = require('form-data');
 const express = require('express');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-// --- 1. SERVIDOR PARA RENDER (INDISPENSABLE) ---
+// --- CONFIGURACIÓN DE APIS ---
+const GROQ_API_KEY = "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";
+const GEMINI_API_KEY = "AIzaSyDJZbAQEcqsPXHMM7Zmpz8rHF3HPAaHbGE";
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+
 const app = express();
-app.get('/', (req, res) => res.send('Maxor Bot Online 🦷'));
+app.get('/', (req, res) => res.send('Maxor Bot Híbrido Activo 🦷'));
 app.listen(process.env.PORT || 3000);
 
-const GROQ_API_KEY = "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";
-const MODELO = "llama-3.3-70b-versatile";
-
 let memoria = {};
-let temporizadores = {};
 
-// --- 2. FUNCIÓN DE AUDIO CORREGIDA (PARA RENDER) ---
-async function transcribirAudio(stream) {
-    // Usamos /tmp/ porque Render bloquea la escritura en otras carpetas
+// --- NUEVA FUNCIÓN DE AUDIO CON GEMINI (Sin errores 401) ---
+async function transcribirAudioGemini(stream) {
     const tempFile = `/tmp/audio_${Date.now()}.ogg`;
     try {
         const buffer = [];
         for await (const chunk of stream) buffer.push(chunk);
         fs.writeFileSync(tempFile, Buffer.concat(buffer));
 
-        const formData = new FormData();
-        formData.append('file', fs.createReadStream(tempFile));
-        formData.append('model', 'whisper-large-v3');
-        formData.append('language', 'es');
+        // Usamos Gemini 1.5 Flash para transcribir
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const audioData = {
+            inlineData: {
+                data: Buffer.concat(buffer).toString("base64"),
+                mimeType: "audio/ogg"
+            }
+        };
 
-        const res = await axios.post('https://api.groq.com/openai/v1/audio/transcriptions', formData, {
-            headers: { ...formData.getHeaders(), 'Authorization': `Bearer ${GROQ_API_KEY}` }
-        });
+        const result = await model.generateContent([
+            "Transcribe exactamente lo que dice este audio en español. Si no hay voz, responde con un espacio vacío.",
+            audioData
+        ]);
 
         if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-        return res.data.text;
+        return result.response.text();
     } catch (e) {
         if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-        console.error("Error en Whisper:", e.message);
+        console.error("Error en Gemini Audio:", e.message);
         return null;
     }
 }
 
-// --- 3. LÓGICA DE IA CON TU PROMPT ORIGINAL ---
+// --- LÓGICA DE IA CON GROQ (Tu Prompt Original) ---
 async function hablarConGroq(chatId, textoUsuario, nombreWhatsApp) {
     if (!memoria[chatId]) {
         memoria[chatId] = { historial: [], datosPaciente: { nombre: nombreWhatsApp } };
@@ -59,7 +64,7 @@ async function hablarConGroq(chatId, textoUsuario, nombreWhatsApp) {
 
     try {
         const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
-            model: MODELO,
+            model: "llama-3.3-70b-versatile",
             messages: [{ role: "system", content: systemPrompt }, ...memoria[chatId].historial],
             temperature: 0.7 
         }, { headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" } });
@@ -70,9 +75,8 @@ async function hablarConGroq(chatId, textoUsuario, nombreWhatsApp) {
     } catch (e) { return "¡Hola! Soy Maxor. ✨ ¿Cómo puedo ayudarte hoy? 🦷"; }
 }
 
-// --- 4. INICIO DEL BOT ---
 async function startBot() {
-    // IMPORTANTE: Mantenemos el nombre de tu sesión actual para NO perder el QR
+    // MANTENEMOS TU SESIÓN PARA NO PERDER EL QR
     const { state, saveCreds } = await useMultiFileAuthState('sesion_qr_nueva_final');
     
     const sock = makeWASocket({
@@ -84,18 +88,9 @@ async function startBot() {
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        if (qr) {
-            console.log("📢 El QR se cerró inesperadamente. Escanea de nuevo:");
-            console.log(`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300`);
-        }
-        if (connection === 'open') {
-            console.log('✅ MAXOR ONLINE - SESIÓN RECUPERADA');
-        }
-        if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) startBot();
-        }
+        const { connection, qr } = update;
+        if (qr) console.log("QR Link: https://api.qrserver.com/v1/create-qr-code/?data=" + encodeURIComponent(qr));
+        if (connection === 'open') console.log('✅ MAXOR HÍBRIDO ONLINE');
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -107,30 +102,30 @@ async function startBot() {
         const nombreWA = msg.pushName || "Paciente";
         let text = msg.message.conversation || msg.message.extendedTextMessage?.text;
 
-        // --- PROCESAR AUDIO ---
+        // --- SI ES AUDIO: USA GEMINI ---
         if (msg.message.audioMessage) {
-            // Indicamos que el bot está procesando
             await sock.sendPresenceUpdate('composing', chatId); 
-            console.log("🎤 Audio recibido, transcribiendo...");
+            console.log("🎤 Audio recibido. Procesando con Gemini...");
             const stream = await downloadContentFromMessage(msg.message.audioMessage, 'audio');
-            text = await transcribirAudio(stream);
-            console.log(`📝 Transcripción: ${text}`);
+            text = await transcribirAudioGemini(stream);
+            console.log(`📝 Gemini transcribió: ${text}`);
         }
 
-        if (text) {
+        // --- SI HAY TEXTO: RESPONDE CON GROQ ---
+        if (text && text.trim().length > 0) {
             const respuesta = await hablarConGroq(chatId, text, nombreWA);
             await sock.sendMessage(chatId, { text: respuesta });
 
-            // --- ENVÍO A TU WEBHOOK DE N8N ---
+            // ENVÍO A N8N
             try {
                 await axios.post("https://themiz97.app.n8n.cloud/webhook-test/test-pacientes", {
                     nombre: nombreWA,
                     telefono: chatId.split('@')[0],
                     mensaje: text,
                     respuesta_ia: respuesta,
-                    tipo: msg.message.audioMessage ? "audio" : "texto"
+                    fuente: msg.message.audioMessage ? "Gemini Audio" : "Groq Texto"
                 });
-            } catch (e) { console.log("n8n test offline"); }
+            } catch (e) { console.log("n8n offline"); }
         }
     });
 }
