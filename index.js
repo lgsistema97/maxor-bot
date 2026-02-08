@@ -7,7 +7,7 @@ const express = require('express');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const app = express();
-app.get('/', (req, res) => res.send('Maxor Bot Status: Running 🦷'));
+app.get('/', (req, res) => res.send('Maxor Bot Híbrido: Online 🦷'));
 app.listen(process.env.PORT || 3000);
 
 const GROQ_API_KEY = "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";
@@ -15,28 +15,22 @@ const GEMINI_API_KEY = "AIzaSyDJZbAQEcqsPXHMM7Zmpz8rHF3HPAaHbGE";
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 async function startBot() {
-    // CAMBIO DE NOMBRE DE SESIÓN PARA BORRAR EL ERROR ANTERIOR
+    // Mantenemos el nombre para que NO pida QR de nuevo
     const { state, saveCreds } = await useMultiFileAuthState('sesion_fuerza_bruta');
 
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: "silent" }),
-        // IDENTIDAD DE NAVEGADOR CAMBIADA A MAC (Más estable)
         browser: ["Mac OS", "Safari", "17.0"],
-        printQRInTerminal: true,
-        connectTimeoutMs: 60000,
-        keepAliveIntervalMs: 10000
+        printQRInTerminal: false // Evita el error de depreciación de tu imagen 4
     });
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
-        if (qr) {
-            console.log("📢 ESCANEA ESTE NUEVO QR (LINK ACTUALIZADO):");
-            console.log(`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300`);
-        }
-        if (connection === 'open') console.log('✅ CONECTADO EXITOSAMENTE');
+        if (qr) console.log("Link QR: https://api.qrserver.com/v1/create-qr-code/?data=" + encodeURIComponent(qr));
+        if (connection === 'open') console.log('✅ MAXOR FUNCIONANDO PERFECTO');
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             if (shouldReconnect) startBot();
@@ -51,39 +45,49 @@ async function startBot() {
         const chatId = msg.key.remoteJid;
         let text = msg.message.conversation || msg.message.extendedTextMessage?.text;
 
-        // PROCESAR AUDIO CON GEMINI
+        // --- PROCESAR AUDIO CON GEMINI ---
         if (msg.message.audioMessage) {
             try {
                 const stream = await downloadContentFromMessage(msg.message.audioMessage, 'audio');
                 const buffer = [];
                 for await (const chunk of stream) buffer.push(chunk);
+                
                 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
                 const result = await model.generateContent([
-                    "Transcribe este audio de un paciente:",
+                    "Transcribe este audio de WhatsApp:",
                     { inlineData: { data: Buffer.concat(buffer).toString("base64"), mimeType: "audio/ogg" } }
                 ]);
                 text = result.response.text();
-            } catch (e) { console.log("Error audio"); }
+            } catch (e) { console.error("Error Audio Gemini:", e.message); }
         }
 
         if (text) {
             try {
+                // LLAMADA A GROQ CORREGIDA
                 const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
                     model: "llama-3.3-70b-versatile",
                     messages: [
-                        { role: "system", content: "Eres Maxor, asistente de Clínica Maxor. Usa emojis 🦷✨." },
+                        { role: "system", content: "Eres Maxor, asistente de Clínica Maxor. Usa emojis 🦷✨. Da respuestas cortas y amables." },
                         { role: "user", content: text }
                     ]
-                }, { headers: { "Authorization": `Bearer ${GROQ_API_KEY}` } });
+                }, { 
+                    headers: { 
+                        "Authorization": `Bearer ${GROQ_API_KEY}`,
+                        "Content-Type": "application/json"
+                    } 
+                });
                 
-                await sock.sendMessage(chatId, { text: res.data.choices[0].message.content });
+                const respuestaIA = res.data.choices[0].message.content;
+                await sock.sendMessage(chatId, { text: respuestaIA });
                 
                 // Envío a n8n
                 axios.post("https://themiz97.app.n8n.cloud/webhook-test/test-pacientes", {
                     nombre: msg.pushName || "Paciente",
-                    mensaje: text
+                    mensaje: text,
+                    respuesta: respuestaIA
                 }).catch(() => {});
-            } catch (e) { console.log("Error Groq"); }
+
+            } catch (e) { console.error("Error Groq:", e.response?.data || e.message); }
         }
     });
 }
