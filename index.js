@@ -7,15 +7,15 @@ const axios = require('axios');
 const FormData = require('form-data');
 const express = require('express');
 
-// --- SERVIDOR PARA RENDER ---
+// --- SERVIDOR PARA MANTENER VIVO EL BOT EN RENDER ---
 const app = express();
-app.get('/', (req, res) => res.send('Maxor Bot con Voz de Pedro AWS Online 🦷'));
+app.get('/', (req, res) => res.send('Maxor Bot - Voz de Pedro (Ohio) Online 🦷'));
 app.listen(process.env.PORT || 3000);
 
-// --- CONFIGURACIÓN DE LLAVES ---
+// --- CONFIGURACIÓN DE CREDENCIALES ---
 const GROQ_API_KEY = "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";
 const AWS_CONFIG = {
-    region: "us-east-2", // Ohio, según tu consola AWS
+    region: "us-east-2", // Región Ohio sin candado
     credentials: {
         accessKeyId: "AKIAWIMAFPKT4HMOM5UD",
         secretAccessKey: "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"
@@ -25,8 +25,7 @@ const AWS_CONFIG = {
 const pollyClient = new PollyClient(AWS_CONFIG);
 
 async function startBot() {
-    // Nueva sesión para asegurar conexión limpia
-    const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_aws_pedro');
+    const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_aws_v5');
 
     const sock = makeWASocket({
         auth: state,
@@ -39,15 +38,11 @@ async function startBot() {
     sock.ev.on('connection.update', (update) => {
         const { connection, qr } = update;
         if (qr) {
-            console.log("📢 ESCANEA EL QR PARA ACTIVAR A PEDRO:");
+            console.log("📢 ESCANEA EL QR PARA ACTIVAR:");
             console.log(`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300`);
         }
-        if (connection === 'open') {
-            console.log('✅ MAXOR CONECTADO CON VOZ DE PEDRO (AWS)');
-        }
-        if (connection === 'close') {
-            startBot();
-        }
+        if (connection === 'open') console.log('✅ MAXOR V5 (PEDRO) CONECTADO');
+        if (connection === 'close') startBot();
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -59,12 +54,11 @@ async function startBot() {
         let text = msg.message.conversation || msg.message.extendedTextMessage?.text;
         let esAudio = false;
 
-        // Prompt de personalidad
         const systemPrompt = `Eres Maxor, asistente de la Clínica Maxor del Dr. Orlando Reyes. 
-        REGLA: En tus respuestas escritas usa 2 o 3 emojis (🦷, ✨). 
-        En los audios sé breve, amable y profesional. No menciones que eres una IA.`;
+        REGLA DE TEXTO: Usa siempre 2 o 3 emojis (🦷, ✨). 
+        REGLA DE AUDIO: Sé breve y profesional. No menciones que eres una IA.`;
 
-        // --- 1. TRANSCRIPCIÓN DE AUDIO (WHISPER) ---
+        // 1. TRANSCRIPCIÓN DE AUDIO (WHISPER EN GROQ)
         if (msg.message.audioMessage) {
             esAudio = true;
             await sock.sendPresenceUpdate('composing', chatId);
@@ -84,66 +78,45 @@ async function startBot() {
                 });
                 text = res.data.text;
                 if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-            } catch (e) { 
-                console.error("Error Whisper:", e.message);
-                if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-            }
+            } catch (e) { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); }
         }
 
-        // --- 2. RESPUESTA E INTELIGENCIA ---
+        // 2. GENERACIÓN DE RESPUESTA Y VOZ
         if (text) {
             try {
                 const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
                     model: "llama-3.3-70b-versatile",
-                    messages: [
-                        { role: "system", content: systemPrompt },
-                        { role: "user", content: text }
-                    ]
-                }, { 
-                    headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" } 
-                });
+                    messages: [{ role: "system", content: systemPrompt }, { role: "user", content: text }]
+                }, { headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" } });
 
                 const respuestaIA = res.data.choices[0].message.content;
 
                 if (esAudio) {
-                    // Limpieza para que Polly no lea los emojis
+                    // Limpieza total de emojis para que AWS no se confunda
                     const textoParaVoz = respuestaIA.replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '');
 
-                    // LLAMADA A AMAZON POLLY
                     const command = new SynthesizeSpeechCommand({
                         Text: textoParaVoz,
                         OutputFormat: "mp3",
-                        VoiceId: "Enrique", 
-                        Engine: "standard"    
+                        VoiceId: "Pedro", // Voz masculina profesional disponible en Ohio
+                        Engine: "standard" // Motor compatible con todas las regiones
                     });
 
                     const response = await pollyClient.send(command);
-                    
-                    // Convertir stream de AWS a Buffer
                     const chunks = [];
                     for await (const chunk of response.AudioStream) { chunks.push(chunk); }
                     const audioBuffer = Buffer.concat(chunks);
 
+                    // Enviamos como mpeg para corregir error en celulares
                     await sock.sendMessage(chatId, { 
                         audio: audioBuffer, 
-                        mimetype: 'audio/mp4', 
+                        mimetype: 'audio/mpeg', 
                         ptt: true 
                     });
                 } else {
-                    // Envío de texto normal con emojis
                     await sock.sendMessage(chatId, { text: respuestaIA });
                 }
-
-                // Webhook opcional para n8n
-                axios.post("https://themiz97.app.n8n.cloud/webhook-test/test-pacientes", {
-                    nombre: msg.pushName || "Paciente",
-                    mensaje: text,
-                    respuesta: respuestaIA
-                }).catch(() => {});
-
-            } catch (e) { 
-                console.error("Error Proceso:", e.message);
-            }
+            } catch (e) { console.error("Error Proceso:", e.message); }
         }
     });
 }
