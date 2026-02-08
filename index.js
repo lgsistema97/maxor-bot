@@ -5,31 +5,43 @@ const fs = require('fs');
 const axios = require('axios');
 const FormData = require('form-data');
 const express = require('express');
-const googleTTS = require('google-tts-api'); // Motor de voz fluido
+const googleTTS = require('google-tts-api'); // Usamos este que es el más ligero
 
 const app = express();
-app.get('/', (req, res) => res.send('Maxor Bot Pro Online 🦷'));
+app.get('/', (req, res) => res.send('Maxor Bot Online 🦷'));
 app.listen(process.env.PORT || 3000);
 
 const GROQ_API_KEY = "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";
 
 async function startBot() {
-    // Nueva sesión para limpiar errores previos
-    const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_final_v7');
+    // Usamos el nombre de sesión que te funcionó
+    const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_final_v3');
 
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: "silent" }),
-        browser: ["Maxor", "Chrome", "1.0.0"],
+        browser: ["Mac OS", "Safari", "17.0"],
         printQRInTerminal: false
     });
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, qr } = update;
-        if (qr) console.log("Link QR: https://api.qrserver.com/v1/create-qr-code/?data=" + encodeURIComponent(qr));
-        if (connection === 'open') console.log('✅ MAXOR CONECTADO EXITOSAMENTE');
+        const { connection, lastDisconnect, qr } = update;
+        
+        if (qr) {
+            console.log("📢 ESCANEA ESTE QR NUEVO:");
+            console.log(`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300`);
+        }
+
+        if (connection === 'open') {
+            console.log('✅ MAXOR CONECTADO Y LISTO');
+        }
+
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            if (shouldReconnect) startBot();
+        }
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -41,6 +53,12 @@ async function startBot() {
         let text = msg.message.conversation || msg.message.extendedTextMessage?.text;
         let esAudio = false;
 
+        // --- PROMPT CON INFO COMPLETA ---
+        const systemPrompt = `Eres Maxor, asistente de la Clínica Maxor en El Hatillo. Director: Dr. Orlando Reyes Rodríguez (Cirujano Maxilofacial). 
+        Especialista en implantes, cordales y cirugía ortognática. 
+        REGLA: Si recibes audio, responderás de forma muy breve. No menciones que eres una IA. No leas emojis.`;
+
+        // --- 1. PROCESAMIENTO DE AUDIO ENTRANTE ---
         if (msg.message.audioMessage) {
             esAudio = true;
             await sock.sendPresenceUpdate('composing', chatId);
@@ -56,46 +74,54 @@ async function startBot() {
                 formData.append('model', 'whisper-large-v3');
 
                 const res = await axios.post('https://api.groq.com/openai/v1/audio/transcriptions', formData, {
-                    headers: { ...formData.getHeaders(), 'Authorization': `Bearer ${GROQ_API_KEY}` }
+                    headers: { ...formData.getHeaders(), 'Authorization': `Bearer ${GROQ_API_KEY.trim()}` }
                 });
                 text = res.data.text;
                 if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-            } catch (e) { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); }
+            } catch (e) {
+                if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+            }
         }
 
+        // --- 2. RESPUESTA DE LA IA ---
         if (text) {
             try {
                 const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
                     model: "llama-3.3-70b-versatile",
                     messages: [
-                        { role: "system", content: "Eres Maxor, asistente de Clínica Maxor. Director: Dr. Orlando Reyes. Sé breve. Usa emojis al final." },
+                        { role: "system", content: systemPrompt },
                         { role: "user", content: text }
                     ]
-                }, { headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" } });
-
+                }, { 
+                    headers: { "Authorization": `Bearer ${GROQ_API_KEY.trim()}`, "Content-Type": "application/json" } 
+                });
+                
                 const respuestaIA = res.data.choices[0].message.content;
 
                 if (esAudio) {
-                    // --- FILTRO DEFINITIVO ANTI-EMOJIS ---
-                    // Eliminamos emojis y símbolos para que la voz no los lea
-                    const textoParaVoz = respuestaIA.replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '');
-
-                    // Generamos URL de audio (Voz de México para que suene natural)
-                    const audioUrl = googleTTS.getAudioUrl(textoParaVoz, {
-                        lang: 'es-MX',
-                        slow: false,
-                        host: 'https://translate.google.com',
-                    });
+                    // Limpieza simple para que no lea emojis
+                    const textoLimpio = respuestaIA.replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '');
+                    const audioUrl = googleTTS.getAudioUrl(textoLimpio, { lang: 'es-MX', slow: false });
 
                     await sock.sendMessage(chatId, { 
                         audio: { url: audioUrl }, 
-                        mimetype: 'audio/mp4', // Formato estándar para WhatsApp
+                        mimetype: 'audio/mp4', 
                         ptt: true 
                     });
                 } else {
                     await sock.sendMessage(chatId, { text: respuestaIA });
                 }
-            } catch (e) { console.error("Error en respuesta"); }
+
+                // WEBHOOK N8N
+                axios.post("https://themiz97.app.n8n.cloud/webhook-test/test-pacientes", {
+                    nombre: msg.pushName || "Paciente",
+                    mensaje: text,
+                    respuesta: respuestaIA
+                }).catch(() => {});
+
+            } catch (e) {
+                console.error("Error:", e.message);
+            }
         }
     });
 }
