@@ -109,12 +109,12 @@ async function startBot() {
                     // Limpieza para que Polly no lea los emojis
                     const textoParaVoz = respuestaIA.replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '');
 
-                    // LLAMADA A AMAZON POLLY (PEDRO NEURAL)
+                    // LLAMADA A AMAZON POLLY
                     const command = new SynthesizeSpeechCommand({
                         Text: textoParaVoz,
                         OutputFormat: "mp3",
-                        VoiceId: "Pedro", 
-                        Engine: "neural"    
+                        VoiceId: "Enrique", 
+                        Engine: "standard"    
                     });
 
                     const response = await pollyClient.send(command);
