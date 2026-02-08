@@ -7,15 +7,13 @@ const FormData = require('form-data');
 const express = require('express');
 const gTTS = require('gtts'); 
 
-// --- SERVIDOR PARA RENDER ---
 const app = express();
-app.get('/', (req, res) => res.send('Maxor Bot con Voz: Online 🦷'));
+app.get('/', (req, res) => res.send('Maxor Bot Pro: Online 🦷'));
 app.listen(process.env.PORT || 3000);
 
 const GROQ_API_KEY = "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";
 
 async function startBot() {
-    // Nueva sesión para activar la función de voz
     const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_voz_v5');
 
     const sock = makeWASocket({
@@ -28,10 +26,8 @@ async function startBot() {
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, qr } = update;
-        if (qr) console.log("Link QR: https://api.qrserver.com/v1/create-qr-code/?data=" + encodeURIComponent(qr));
-        if (connection === 'open') console.log('✅ MAXOR CON VOZ ACTIVADA');
-        if (connection === 'close') startBot();
+        const { connection } = update;
+        if (connection === 'open') console.log('✅ MAXOR FUNCIONANDO SIN EMOJIS EN VOZ');
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -43,12 +39,8 @@ async function startBot() {
         let text = msg.message.conversation || msg.message.extendedTextMessage?.text;
         let esAudio = false;
 
-        // --- PROMPT CON INFO DEL DR. ORLANDO Y CLÍNICA ---
-        const systemPrompt = `Eres Maxor, asistente de la Clínica Maxor en El Hatillo. Director: Dr. Orlando Reyes Rodríguez (Cirujano Maxilofacial UNAM). 
-        Especialista en implantes, cordales y cirugía ortognática. 
-        REGLA: Si recibes audio, responderás de forma muy breve para que el audio no sea largo. No menciones que eres una IA. Usa emojis 🦷✨.`;
+        const systemPrompt = `Eres Maxor, asistente de Clínica Maxor. Director: Dr. Orlando Reyes. Sé breve y profesional. Usa emojis al final del texto.`;
 
-        // --- MANEJO DE AUDIO ENTRANTE (TRANSCRIPCIÓN) ---
         if (msg.message.audioMessage) {
             esAudio = true;
             await sock.sendPresenceUpdate('composing', chatId);
@@ -71,7 +63,6 @@ async function startBot() {
             } catch (e) { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); }
         }
 
-        // --- RESPUESTA DE LA IA ---
         if (text) {
             try {
                 const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
@@ -82,19 +73,25 @@ async function startBot() {
                 const respuestaIA = res.data.choices[0].message.content;
 
                 if (esAudio) {
-                    // GENERAR NOTA DE VOZ DE RESPUESTA
+                    // --- LIMPIEZA DE EMOJIS PARA EL AUDIO ---
+                    // Esta línea quita los emojis para que la IA no diga "diente"
+                    const textoLimpioParaVoz = respuestaIA.replace(/[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{1F900}-\u{1F9FF}\u{1F400}-\u{1F4FF}]/gu, '');
+
                     const pathAudioRespuesta = `/tmp/res_${Date.now()}.mp3`;
-                    const gtts = new gTTS(respuestaIA, 'es-us');
+                    const gtts = new gTTS(textoLimpioParaVoz, 'es-us');
                     
                     gtts.save(pathAudioRespuesta, async function (err) {
                         if (err) return sock.sendMessage(chatId, { text: respuestaIA });
                         
+                        // Enviamos con mimetype corregido para que el paciente pueda escucharlo
                         await sock.sendMessage(chatId, { 
                             audio: { url: pathAudioRespuesta }, 
-                            mimetype: 'audio/mp4', 
+                            mimetype: 'audio/mpeg', 
                             ptt: true 
                         });
-                        if (fs.existsSync(pathAudioRespuesta)) fs.unlinkSync(pathAudioRespuesta);
+                        
+                        // Esperamos un poco antes de borrar para que WhatsApp termine de subirlo
+                        setTimeout(() => { if (fs.existsSync(pathAudioRespuesta)) fs.unlinkSync(pathAudioRespuesta); }, 5000);
                     });
                 } else {
                     await sock.sendMessage(chatId, { text: respuestaIA });
