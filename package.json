@@ -5,6 +5,7 @@
   "dependencies": {
     "@whiskeysockets/baileys": "latest",
     "axios": "latest",
+    "edge-tts": "latest",
     "qrcode-terminal": "latest",
     "pino": "latest",
     "express": "latest",
