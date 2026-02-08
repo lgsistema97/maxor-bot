@@ -6,16 +6,14 @@ const axios = require('axios');
 const FormData = require('form-data');
 const express = require('express');
 
-// --- 1. SERVIDOR PARA RENDER ---
 const app = express();
 app.get('/', (req, res) => res.send('Maxor Bot Online 🦷'));
 app.listen(process.env.PORT || 3000);
 
-// --- 2. CONFIGURACIÓN DE API ---
 const GROQ_API_KEY = "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";
 
 async function startBot() {
-    // Sesión actualizada para aplicar cambios
+    // Mantenemos la sesión v4 para que no tengas que escanear de nuevo
     const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_final_v4');
 
     const sock = makeWASocket({
@@ -29,10 +27,7 @@ async function startBot() {
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
-        if (qr) {
-            console.log("📢 ESCANEA ESTE QR:");
-            console.log(`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300`);
-        }
+        if (qr) console.log("Link QR: https://api.qrserver.com/v1/create-qr-code/?data=" + encodeURIComponent(qr));
         if (connection === 'open') console.log('✅ MAXOR CONECTADO EXITOSAMENTE');
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
@@ -45,30 +40,28 @@ async function startBot() {
         const msg = messages[0];
         if (!msg.message || msg.key.fromMe) return;
 
-        const chatId = msg.remoteJid;
+        // --- CORRECCIÓN AQUÍ: Usar msg.key.remoteJid ---
+        const chatId = msg.key.remoteJid;
         let text = msg.message.conversation || msg.message.extendedTextMessage?.text;
 
-        // PROMPT PERSONALIZADO CON TODA LA INFORMACIÓN
         const systemPrompt = `Eres Maxor, asistente virtual exclusivo de la Clínica Maxilofacial Maxor en El Hatillo. 
 
-INFORMACIÓN DEL DOCTOR:
-- Director Médico: Dr. Orlando Reyes Rodríguez.
-- Especialidad: Cirujano Bucal y Maxilofacial (egresado de la UNAM, México, 2009). 
-- Experiencia: Experto en cirugía ortognática, implantes dentales, reconstrucción maxilofacial y rehabilitación compleja.
-- Compromiso Social: Lidera la Fundación Maxor y el proyecto educativo EduMaxor, ayudando a pacientes con labio y paladar hendido.
+        DOCTOR ORLANDO REYES RODRÍGUEZ:
+        - Cirujano Bucal y Maxilofacial (UNAM, México). Director Médico de la Clínica.
+        - Experto en cirugía ortognática, implantes y reconstrucción compleja.
+        - Lidera la Fundación Maxor y EduMaxor para pacientes con labio y paladar hendido.
 
-SOBRE LA CLÍNICA:
-- Ubicación: Torre Q, El Hatillo, Caracas. Web: inversionesmaxor.com
-- Servicios: Cordales, implantes, estética facial, traumatismos y patología maxilofacial.
-- Planes: Plan Gold ($260) y Plan Básico ($180).
+        CLÍNICA MAXOR:
+        - Ubicada en Torre Q, El Hatillo, Caracas. Web: inversionesmaxor.com
+        - Servicios: Cordales, implantes, estética facial y patologías.
+        - Planes: Plan Gold ($260) y Plan Básico ($180).
 
-REGLAS DE IDENTIDAD Y COMPORTAMIENTO:
-1. Tu nombre es Maxor. No menciones NUNCA que eres una IA, ni a Meta, Llama o Groq.
-2. Si preguntan por tu tecnología, di con amabilidad que eres el asistente de la clínica entrenado para ayudar a los pacientes de Maxor.
-3. Solo respondes dudas sobre la clínica y el Dr. Orlando Reyes. Si preguntan cosas ajenas, di: "Solo puedo asistirte con información relacionada a la Clínica Maxor y salud bucal. ¿Cómo puedo ayudarte hoy? 🦷✨"
-4. Estilo: Profesional, empático y breve. Usa 1 o 2 emojis (🦷, ✨).`;
+        REGLAS:
+        - Tu nombre es Maxor. NO digas que eres una IA ni menciones tecnologías (Llama/Groq).
+        - Si preguntan algo ajeno a la clínica, responde amablemente que solo atiendes temas de salud bucal y Maxor.
+        - Sé profesional, empático y usa emojis 🦷✨.`;
 
-        // --- MANEJO DE AUDIO (WHISPER) ---
+        // MANEJO DE AUDIO
         if (msg.message.audioMessage) {
             await sock.sendPresenceUpdate('composing', chatId);
             const tempFile = `/tmp/audio_${Date.now()}.ogg`;
@@ -92,7 +85,7 @@ REGLAS DE IDENTIDAD Y COMPORTAMIENTO:
             }
         }
 
-        // --- RESPUESTA DE CHAT ---
+        // RESPUESTA DE CHAT
         if (text) {
             try {
                 const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
@@ -106,14 +99,12 @@ REGLAS DE IDENTIDAD Y COMPORTAMIENTO:
                 const respuestaIA = res.data.choices[0].message.content;
                 await sock.sendMessage(chatId, { text: respuestaIA });
 
-                // Envío a n8n
                 axios.post("https://themiz97.app.n8n.cloud/webhook-test/test-pacientes", {
                     nombre: msg.pushName || "Paciente",
                     mensaje: text,
-                    respuesta: respuestaIA,
-                    doctor: "Dr. Orlando Reyes Rodríguez"
+                    respuesta: respuestaIA
                 }).catch(() => {});
-            } catch (e) { console.error("Error Groq"); }
+            } catch (e) { console.error("Error Groq:", e.message); }
         }
     });
 }
