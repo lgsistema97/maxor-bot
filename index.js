@@ -5,43 +5,33 @@ const fs = require('fs');
 const axios = require('axios');
 const FormData = require('form-data');
 const express = require('express');
-const googleTTS = require('google-tts-api'); // Usamos este que es el más ligero
 
 const app = express();
-app.get('/', (req, res) => res.send('Maxor Bot Online 🦷'));
+app.get('/', (req, res) => res.send('Maxor Bot Pro V9 (ElevenLabs) Online 🦷'));
 app.listen(process.env.PORT || 3000);
 
+// CONFIGURACIONES
 const GROQ_API_KEY = "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";
+const ELEVENLABS_API_KEY = "sk_f85df6f288ec53671cc5f580d3ec02fb40f3035a3ae4faa2";
+const VOICE_ID = "pNInz6obpgDQGcFmaJgB"; // Voz profesional masculina (Adam)
 
 async function startBot() {
-    // Usamos el nombre de sesión que te funcionó
     const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_final_v3');
 
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: "silent" }),
-        browser: ["Mac OS", "Safari", "17.0"],
+        browser: ["Maxor Bot", "Chrome", "1.0.0"],
         printQRInTerminal: false
     });
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-        
-        if (qr) {
-            console.log("📢 ESCANEA ESTE QR NUEVO:");
-            console.log(`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300`);
-        }
-
-        if (connection === 'open') {
-            console.log('✅ MAXOR CONECTADO Y LISTO');
-        }
-
-        if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            if (shouldReconnect) startBot();
-        }
+        const { connection, qr } = update;
+        if (qr) console.log("Link QR: https://api.qrserver.com/v1/create-qr-code/?data=" + encodeURIComponent(qr));
+        if (connection === 'open') console.log('✅ MAXOR V9 CON ELEVENLABS CONECTADO');
+        if (connection === 'close') startBot();
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -53,12 +43,11 @@ async function startBot() {
         let text = msg.message.conversation || msg.message.extendedTextMessage?.text;
         let esAudio = false;
 
-        // --- PROMPT CON INFO COMPLETA ---
-        const systemPrompt = `Eres Maxor, asistente de la Clínica Maxor en El Hatillo. Director: Dr. Orlando Reyes Rodríguez (Cirujano Maxilofacial). 
-        Especialista en implantes, cordales y cirugía ortognática. 
-        REGLA: Si recibes audio, responderás de forma muy breve. No menciones que eres una IA. No leas emojis.`;
+        const systemPrompt = `Eres Maxor, asistente de Clínica Maxor. Director: Dr. Orlando Reyes. 
+        REGLA DE ORO: En tus respuestas escritas DEBES usar siempre 2 o 3 emojis (🦷, ✨, 🪥).
+        Sé breve, amable y profesional.`;
 
-        // --- 1. PROCESAMIENTO DE AUDIO ENTRANTE ---
+        // --- 1. TRANSCRIPCIÓN DE AUDIO ---
         if (msg.message.audioMessage) {
             esAudio = true;
             await sock.sendPresenceUpdate('composing', chatId);
@@ -74,37 +63,40 @@ async function startBot() {
                 formData.append('model', 'whisper-large-v3');
 
                 const res = await axios.post('https://api.groq.com/openai/v1/audio/transcriptions', formData, {
-                    headers: { ...formData.getHeaders(), 'Authorization': `Bearer ${GROQ_API_KEY.trim()}` }
+                    headers: { ...formData.getHeaders(), 'Authorization': `Bearer ${GROQ_API_KEY}` }
                 });
                 text = res.data.text;
                 if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-            } catch (e) {
-                if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
-            }
+            } catch (e) { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); }
         }
 
-        // --- 2. RESPUESTA DE LA IA ---
+        // --- 2. GENERACIÓN DE RESPUESTA ---
         if (text) {
             try {
                 const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
                     model: "llama-3.3-70b-versatile",
-                    messages: [
-                        { role: "system", content: systemPrompt },
-                        { role: "user", content: text }
-                    ]
-                }, { 
-                    headers: { "Authorization": `Bearer ${GROQ_API_KEY.trim()}`, "Content-Type": "application/json" } 
-                });
-                
+                    messages: [{ role: "system", content: systemPrompt }, { role: "user", content: text }]
+                }, { headers: { "Authorization": `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" } });
+
                 const respuestaIA = res.data.choices[0].message.content;
 
                 if (esAudio) {
-                    // Limpieza simple para que no lea emojis
-                    const textoLimpio = respuestaIA.replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '');
-                    const audioUrl = googleTTS.getAudioUrl(textoLimpio, { lang: 'es-MX', slow: false });
+                    // LIMPIEZA DE TEXTO PARA VOZ (Sin emojis)
+                    const textoParaVoz = respuestaIA.replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '');
 
+                    // GENERACIÓN CON ELEVENLABS
+                    const response = await axios.post(`https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`, {
+                        text: textoParaVoz,
+                        model_id: "eleven_multilingual_v2",
+                        voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+                    }, {
+                        headers: { "xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json" },
+                        responseType: 'arraybuffer'
+                    });
+
+                    // ENVÍO DIRECTO DESDE BUFFER (Soluciona error de reproducción)
                     await sock.sendMessage(chatId, { 
-                        audio: { url: audioUrl }, 
+                        audio: Buffer.from(response.data), 
                         mimetype: 'audio/mp4', 
                         ptt: true 
                     });
@@ -112,16 +104,14 @@ async function startBot() {
                     await sock.sendMessage(chatId, { text: respuestaIA });
                 }
 
-                // WEBHOOK N8N
+                // Webhook n8n
                 axios.post("https://themiz97.app.n8n.cloud/webhook-test/test-pacientes", {
                     nombre: msg.pushName || "Paciente",
                     mensaje: text,
                     respuesta: respuestaIA
                 }).catch(() => {});
 
-            } catch (e) {
-                console.error("Error:", e.message);
-            }
+            } catch (e) { console.error("Error en el proceso:", e.message); }
         }
     });
 }
