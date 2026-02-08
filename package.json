@@ -4,8 +4,8 @@
   "main": "index.js",
   "dependencies": {
     "@whiskeysockets/baileys": "latest",
+    "@aws-sdk/client-polly": "latest",
     "axios": "latest",
-    "google-tts-api": "latest",
     "qrcode-terminal": "latest",
     "pino": "latest",
     "express": "latest",
