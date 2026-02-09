@@ -6,22 +6,23 @@ const axios = require('axios');
 const FormData = require('form-data');
 const express = require('express');
 
+// --- SERVIDOR PARA RENDER ---
 const app = express();
-app.get('/', (req, res) => res.send('Maxor Bot - Google Journey Online 🦷'));
+app.get('/', (req, res) => res.send('Maxor Bot - Voz Journey Caracas Activa 🦷🇻🇪'));
 app.listen(process.env.PORT || 3000);
 
-// --- TUS CLAVES FINALES ---
+// --- CONFIGURACIÓN DE APIS ---
 const GROQ_API_KEY = "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";
 const GOOGLE_TTS_API_KEY = "AIzaSyA9twZINwlgQ1s9w-brp9XS00cdl_EbF9U";
 
 async function startBot() {
-    // Sesión limpia para Google Journey
-    const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_google_v1');
+    // Sesión con nombre único para evitar conflictos de caché
+    const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_caracas_v1');
 
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: "silent" }),
-        browser: ["Maxor Google", "Chrome", "1.0.0"]
+        browser: ["Maxor Caracas", "Chrome", "1.0.0"]
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -29,10 +30,10 @@ async function startBot() {
     sock.ev.on('connection.update', (update) => {
         const { connection, qr } = update;
         if (qr) {
-            console.log("📢 ESCANEA EL QR PARA ACTIVAR VOZ JOURNEY:");
+            console.log("📢 ESCANEA EL QR PARA ACTIVAR MAXOR (ACENTO LATINO):");
             console.log(`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300`);
         }
-        if (connection === 'open') console.log('✅ MAXOR CONECTADO - VOZ GOOGLE JOURNEY ACTIVADA');
+        if (connection === 'open') console.log('✅ MAXOR CONECTADO - VOZ JOURNEY LATINA');
         if (connection === 'close') startBot();
     });
 
@@ -45,15 +46,17 @@ async function startBot() {
         let text = msg.message.conversation || msg.message.extendedTextMessage?.text;
         let esAudio = !!msg.message.audioMessage;
 
-        // --- SYSTEM PROMPT CON RESTRICCIONES ---
-        const systemPrompt = `Eres Maxor, el asistente virtual de la Clínica Dental Maxor. 
-        REGLAS:
-        1. Tu única misión es informar sobre servicios dentales y agendar citas.
-        2. NO hables de otros temas (IP, turismo, noticias, internet). Di: "Solo puedo ayudarte con temas dentales".
-        3. No te presentes en cada mensaje. Solo saluda al inicio.
-        4. Sé amable, breve y profesional. Usa 2 emojis.`;
+        // --- SYSTEM PROMPT PERSONALIZADO (CARACAS + RESTRICCIONES) ---
+        const systemPrompt = `Eres Maxor, el asistente virtual inteligente de la Clínica Dental Maxor en Caracas.
+        REGLAS CRÍTICAS:
+        1. Tu única misión es atender dudas sobre la clínica y persuadir amablemente al cliente para que agende una cita.
+        2. NO hables de otros temas ajenos (IPs, sitios turísticos, noticias, tecnología). Si te preguntan, responde: "Lo siento, como asistente de Clínica Maxor solo puedo ayudarte con temas relacionados a tu salud dental".
+        3. No te presentes en cada mensaje si ya hay una charla abierta. 
+        4. USA ACENTO NEUTRO/LATINO. No uses modismos españoles (nada de "vale", "os", "zumo"). Habla con calidez profesional.
+        5. El Dr. Orlando Reyes es parte del equipo médico, no el dueño. 
+        6. Sé breve y usa emojis (🦷, ✨).`;
 
-        // 1. TRANSCRIPCIÓN (WHISPER)
+        // 1. PROCESAR AUDIO RECIBIDO (TRANSCRIPCIÓN)
         if (esAudio) {
             await sock.sendPresenceUpdate('composing', chatId);
             const tempFile = `/tmp/audio_${Date.now()}.ogg`;
@@ -62,18 +65,20 @@ async function startBot() {
                 const buffer = [];
                 for await (const chunk of stream) buffer.push(chunk);
                 fs.writeFileSync(tempFile, Buffer.concat(buffer));
+
                 const formData = new FormData();
                 formData.append('file', fs.createReadStream(tempFile));
                 formData.append('model', 'whisper-large-v3');
+
                 const res = await axios.post('https://api.groq.com/openai/v1/audio/transcriptions', formData, {
                     headers: { ...formData.getHeaders(), 'Authorization': `Bearer ${GROQ_API_KEY}` }
                 });
                 text = res.data.text;
-                fs.unlinkSync(tempFile);
+                if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
             } catch (e) { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); }
         }
 
-        // 2. INTELIGENCIA Y VOZ JOURNEY
+        // 2. GENERAR RESPUESTA E IA
         if (text) {
             try {
                 const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
@@ -84,17 +89,20 @@ async function startBot() {
                 const respuestaIA = res.data.choices[0].message.content;
 
                 if (esAudio) {
-                    // LLAMADA A GOOGLE CLOUD TTS (VOZ JOURNEY)
+                    // LIMPIEZA DE TEXTO PARA VOZ
+                    const textoVoz = respuestaIA.replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '');
+
+                    // LLAMADA A GOOGLE JOURNEY (ACENTO LATINO)
                     const googleRes = await axios.post(
                         `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_TTS_API_KEY}`,
                         {
-                            input: { text: respuestaIA.replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '') },
+                            input: { text: textoVoz },
                             voice: { 
-                                languageCode: "es-ES", 
-                                name: "es-ES-Journey-F" // Voz Journey (La más humana de Google)
+                                languageCode: "es-US", // Configuración para evitar el acento de España
+                                name: "es-US-Journey-F" // Voz Journey con tono cálido latino
                             },
                             audioConfig: { 
-                                audioEncoding: "OGG_OPUS" // Formato perfecto para WhatsApp
+                                audioEncoding: "OGG_OPUS" // Formato nativo de WhatsApp
                             }
                         }
                     );
@@ -109,10 +117,11 @@ async function startBot() {
                 } else {
                     await sock.sendMessage(chatId, { text: respuestaIA });
                 }
-            } catch (e) { 
-                console.error("❌ Error:", e.response?.data || e.message); 
+            } catch (e) {
+                console.error("❌ Error en el proceso:", e.response?.data || e.message);
             }
         }
     });
 }
+
 startBot();
