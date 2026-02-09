@@ -1,5 +1,4 @@
 const { default: makeWASocket, useMultiFileAuthState, downloadContentFromMessage } = require("@whiskeysockets/baileys");
-const { PollyClient, SynthesizeSpeechCommand } = require("@aws-sdk/client-polly");
 const qrcode = require("qrcode-terminal");
 const pino = require("pino");
 const fs = require('fs');
@@ -7,42 +6,30 @@ const axios = require('axios');
 const FormData = require('form-data');
 const express = require('express');
 
-// --- SERVIDOR PARA RENDER ---
 const app = express();
-app.get('/', (req, res) => res.send('Maxor Bot - Fix SampleRate Online 🦷'));
+app.get('/', (req, res) => res.send('Maxor Bot - ElevenLabs Ultra-Realista Online 🦷'));
 app.listen(process.env.PORT || 3000);
 
-// --- CONFIGURACIÓN DE CREDENCIALES ---
+// --- CLAVES DE API ---
 const GROQ_API_KEY = "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";
-const AWS_CONFIG = {
-    region: "us-east-2", 
-    credentials: {
-        accessKeyId: "AKIAWIMAFPKT4HMOM5UD",
-        secretAccessKey: "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"
-    }
-};
-
-const pollyClient = new PollyClient(AWS_CONFIG);
+const ELEVENLABS_API_KEY = "143d8e69fbac55d0664b9bfbd09f9409a3f7d718dfafdef9cabbf98bed734310";
+const VOICE_ID = "pNInz6obpgDQGcFmaJgB"; // Voz "Adam", muy profesional y cálida. Puedes cambiarla en ElevenLabs.
 
 async function startBot() {
-    // Sesión corregida
-    const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_fix_samplerate');
+    const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_elevenlabs');
 
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: "silent" }),
-        browser: ["Maxor AWS", "Chrome", "1.0.0"]
+        browser: ["Maxor Eleven", "Chrome", "1.0.0"]
     });
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
         const { connection, qr } = update;
-        if (qr) {
-            console.log("📢 ESCANEA EL QR:");
-            console.log(`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300`);
-        }
-        if (connection === 'open') console.log('✅ MAXOR CONECTADO - SIN ERROR DE SAMPLERATE');
+        if (qr) console.log("QR Link: https://api.qrserver.com/v1/create-qr-code/?data=" + encodeURIComponent(qr));
+        if (connection === 'open') console.log('✅ MAXOR CONECTADO CON ELEVENLABS');
         if (connection === 'close') startBot();
     });
 
@@ -55,23 +42,16 @@ async function startBot() {
         let text = msg.message.conversation || msg.message.extendedTextMessage?.text;
         let esAudio = false;
 
-        const systemPrompt = `Eres Maxor, el asistente virtual inteligente de la Clínica Dental Maxor. 
+        // --- SYSTEM PROMPT BLINDADO ---
+        const systemPrompt = `Eres Maxor, el asistente virtual de la Clínica Dental Maxor. 
+        REGLAS:
+        1. Tu objetivo es que el paciente agende una cita médica de forma amable.
+        2. NO respondas nada que no sea sobre salud dental o la clínica (prohibido temas de IP, turismo, etc.).
+        3. Si te preguntan algo ajeno, di: "Solo puedo ayudarte con temas dentales en Clínica Maxor".
+        4. No te presentes en cada mensaje si ya estás hablando con el usuario.
+        5. Dr. Orlando Reyes es parte del equipo, pero no digas que es el dueño.`;
 
-        MISIÓN PRINCIPAL:
-        - Atender dudas sobre servicios dentales, limpiezas, ortodoncia e implantes.
-        - Tu objetivo final es persuadir amablemente al paciente para que agende una cita médica.
-        
-        REGLAS CRÍTICAS DE COMPORTAMIENTO:
-        1. NO te presentes en cada mensaje. Si el usuario ya te está hablando, responde directo a su duda. Solo preséntate en el primer saludo.
-        2. NUNCA respondas sobre temas ajenos a la odontología o la clínica (IPs, sitios turísticos, noticias, etc.). Si te preguntan algo fuera de lugar, responde: "Lo siento, como asistente de Clínica Maxor solo puedo ayudarte con temas relacionados a tu salud dental."
-        3. NO digas que la clínica pertenece al Dr. Orlando Reyes. Él es parte de nuestro excelente equipo médico, pero tú hablas en nombre de la institución "Clínica Maxor".
-        4. Si el usuario muestra interés, ofrece los horarios disponibles y anímalo a dar el paso para mejorar su sonrisa.
-        
-        ESTILO:
-        - Sé amable, profesional y breve.
-        - Usa 2 o 3 emojis (🦷, ✨, 🏥) por mensaje de texto.
-        - En los audios, sé muy natural y directo.`;
-
+        // 1. TRANSCRIPCIÓN (WHISPER)
         if (msg.message.audioMessage) {
             esAudio = true;
             await sock.sendPresenceUpdate('composing', chatId);
@@ -88,10 +68,11 @@ async function startBot() {
                     headers: { ...formData.getHeaders(), 'Authorization': `Bearer ${GROQ_API_KEY}` }
                 });
                 text = res.data.text;
-                if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+                fs.unlinkSync(tempFile);
             } catch (e) { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); }
         }
 
+        // 2. INTELIGENCIA Y VOZ HUMANA
         if (text) {
             try {
                 const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
@@ -102,20 +83,23 @@ async function startBot() {
                 const respuestaIA = res.data.choices[0].message.content;
 
                 if (esAudio) {
+                    // Quitamos emojis para que no afecten la entonación de ElevenLabs
                     const textoParaVoz = respuestaIA.replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '');
 
-                    // QUITAMOS SAMPLERATE PARA EVITAR EL ERROR
-                    const command = new SynthesizeSpeechCommand({
-                        Text: textoParaVoz,
-                        OutputFormat: "ogg_opus", 
-                        VoiceId: "Miguel", 
-                        Engine: "standard" 
-                    });
+                    const response = await axios.post(
+                        `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
+                        {
+                            text: textoParaVoz,
+                            model_id: "eleven_multilingual_v2", // El mejor modelo para español
+                            voice_settings: { stability: 0.5, similarity_boost: 0.75 }
+                        },
+                        {
+                            headers: { "xi-api-key": ELEVENLABS_API_KEY, "Content-Type": "application/json" },
+                            responseType: 'arraybuffer'
+                        }
+                    );
 
-                    const response = await pollyClient.send(command);
-                    const chunks = [];
-                    for await (const chunk of response.AudioStream) { chunks.push(chunk); }
-                    const audioBuffer = Buffer.concat(chunks);
+                    const audioBuffer = Buffer.from(response.data);
 
                     await sock.sendMessage(chatId, { 
                         audio: audioBuffer, 
@@ -125,9 +109,8 @@ async function startBot() {
                 } else {
                     await sock.sendMessage(chatId, { text: respuestaIA });
                 }
-            } catch (e) { console.error("Error Proceso:", e.message); }
+            } catch (e) { console.error("Error:", e.message); }
         }
     });
 }
-
 startBot();
