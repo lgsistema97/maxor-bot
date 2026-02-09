@@ -106,7 +106,6 @@ async function startBot() {
                                 },
                                 audioConfig: { 
                                     audioEncoding: "OGG_OPUS",
-                                    pitch: -1.0 // Un poco más grave para sonar varonil
                                 }
                             }
                         );
