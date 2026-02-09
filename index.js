@@ -1,4 +1,5 @@
-const { default: makeWASocket, useMultiFileAuthState, downloadContentFromMessage, DisconnectReason } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, downloadContentFromMessage } = require("@whiskeysockets/baileys");
+const qrcode = require("qrcode-terminal");
 const pino = require("pino");
 const fs = require('fs');
 const axios = require('axios');
@@ -7,49 +8,34 @@ const express = require('express');
 
 // --- SERVIDOR PARA RENDER ---
 const app = express();
-const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('Maxor Bot - Modo Masculino Fluido 🦷🤵‍♂️'));
-app.listen(PORT, '0.0.0.0', () => console.log(`🌍 Servidor escuchando en puerto ${PORT}`));
+// AJUSTE: Usar el puerto que asigne Render
+const PORT = process.env.PORT || 3000; 
+app.listen(PORT, () => console.log(`🌍 Servidor en puerto ${PORT}`));
 
-// --- CONFIGURACIÓN DE APIS (Usa Variables de Entorno) ---
-const GROQ_API_KEY = process.env.GROQ_API_KEY || "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";
-const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || "AIzaSyA9twZINwlgQ1s9w-brp9XS00cdl_EbF9U";
+// --- CONFIGURACIÓN DE APIS ---
+const GROQ_API_KEY = "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";
+const GOOGLE_TTS_API_KEY = "AIzaSyA9twZINwlgQ1s9w-brp9XS00cdl_EbF9U";
 
 async function startBot() {
-    // 1. Usamos una carpeta de sesión consistente
     const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_caracas_v1');
 
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: "silent" }),
-        // 2. Browser actualizado para evitar bloqueos
-        browser: ["Ubuntu", "Chrome", "20.0.04"]
+        browser: ["Maxor AI", "Chrome", "1.0.0"]
     });
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect, qr } = update;
-
-        if (qr) {
-            console.log("************************************************");
-            console.log("📢 ESCANEA EL QR AQUÍ:");
-            console.log("https://api.qrserver.com/v1/create-qr-code/?data=" + encodeURIComponent(qr));
-            console.log("************************************************");
-        }
-
+        const { connection, qr } = update;
+        // Imprime el link del QR en los logs
+        if (qr) console.log("📢 QR: https://api.qrserver.com/v1/create-qr-code/?data=" + encodeURIComponent(qr));
         if (connection === 'open') console.log('✅ MAXOR CONECTADO - VOZ MASCULINA FLUIDA');
-
-        if (connection === 'close') {
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            const debeReintentar = statusCode !== DisconnectReason.loggedOut;
-            
-            // 3. Reintento con espera de 10 segundos (Evita el bucle infinito)
-            console.log(`⚠️ Conexión cerrada. Reintentando en 10s...`);
-            if (debeReintentar) {
-                setTimeout(() => startBot(), 10000);
-            }
-        }
+        
+        // Reintento instantáneo (como lo tenías antes)
+        if (connection === 'close') startBot();
     });
 
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
@@ -64,10 +50,13 @@ async function startBot() {
         let esAudio = !!msg.message.audioMessage;
 
         const systemPrompt = `Eres Maxor, el asistente virtual de la Clínica Dental Maxor en Caracas.
+        
         DINÁMICA DE CONVERSACIÓN:
-        - PRESENTACIÓN: Solo si es inicio de charla.
-        - TONO: Hombre profesional, amable y caraqueño.
-        - RESTRICCIÓN: Solo odontología. Sé breve.`;
+        - PRESENTACIÓN: Saluda y preséntate SOLO si el chat es nuevo o el usuario dice "Hola". Si ya están hablando, ve directo al punto. No repitas tu nombre en cada audio.
+        - DOCTOR ORLANDO REYES: Solo menciónalo si el paciente pregunta específicamente por quién atiende, por especialistas o citas. No lo nombres sin contexto.
+        - TONO: Eres un hombre profesional, amable y caraqueño. Evita modismos de España. Tienes libertad para conversar de forma fluida y natural sobre salud dental.
+        - RESTRICCIÓN: Si preguntan cosas fuera de la odontología, declina amablemente diciendo que tu especialidad es cuidar sonrisas.
+        - FORMATO: Sé breve. No uses listas largas a menos que te las pidan.`;
 
         if (esAudio) {
             await sock.sendPresenceUpdate('composing', chatId);
@@ -100,25 +89,36 @@ async function startBot() {
                 let respuestaIA = res.data.choices[0].message.content;
 
                 if (esAudio) {
-                    const textoParaVoz = respuestaIA.replace(/[\u1000-\uFFFF]+/g, '').replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '').trim();
+                    const textoParaVoz = respuestaIA
+                        .replace(/[\u1000-\uFFFF]+/g, '')
+                        .replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '')
+                        .trim();
+
                     try {
                         const googleRes = await axios.post(
                             `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_TTS_API_KEY}`,
                             {
                                 input: { text: textoParaVoz },
-                                voice: { languageCode: "es-US", name: "es-US-Journey-D" },
-                                audioConfig: { audioEncoding: "OGG_OPUS" }
+                                voice: { 
+                                    languageCode: "es-US", 
+                                    name: "es-US-Journey-D" 
+                                },
+                                audioConfig: { 
+                                    audioEncoding: "OGG_OPUS",
+                                }
                             }
                         );
+
                         const audioBuffer = Buffer.from(googleRes.data.audioContent, 'base64');
                         await sock.sendMessage(chatId, { audio: audioBuffer, mimetype: 'audio/ogg; codecs=opus', ptt: true });
                     } catch (vErr) {
+                        console.error("Fallo TTS, enviando texto:", vErr.response?.data || vErr.message);
                         await sock.sendMessage(chatId, { text: respuestaIA });
                     }
                 } else {
                     await sock.sendMessage(chatId, { text: respuestaIA });
                 }
-            } catch (e) { console.error("Error:", e.message); }
+            } catch (e) { console.error("Error General:", e.response?.data || e.message); }
         }
     });
 }
