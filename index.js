@@ -9,7 +9,7 @@ const express = require('express');
 
 // --- SERVIDOR PARA RENDER ---
 const app = express();
-app.get('/', (req, res) => res.send('Maxor Bot - Miguel Ogg/Opus Online 🦷'));
+app.get('/', (req, res) => res.send('Maxor Bot - Formato Nativo OGG_OPUS Online 🦷'));
 app.listen(process.env.PORT || 3000);
 
 // --- CONFIGURACIÓN DE CREDENCIALES ---
@@ -25,8 +25,8 @@ const AWS_CONFIG = {
 const pollyClient = new PollyClient(AWS_CONFIG);
 
 async function startBot() {
-    // Nueva sesión para asegurar una conexión limpia
-    const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_ogg_final');
+    // Sesión final optimizada para audio nativo
+    const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_audio_nativo');
 
     const sock = makeWASocket({
         auth: state,
@@ -39,10 +39,10 @@ async function startBot() {
     sock.ev.on('connection.update', (update) => {
         const { connection, qr } = update;
         if (qr) {
-            console.log("📢 ESCANEA EL QR (NUEVA SESIÓN OGG):");
+            console.log("📢 ESCANEA EL QR (SESIÓN AUDIO NATIVO):");
             console.log(`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(qr)}&size=300x300`);
         }
-        if (connection === 'open') console.log('✅ MAXOR CONECTADO - FORMATO OGG/OPUS ACTIVADO');
+        if (connection === 'open') console.log('✅ MAXOR CONECTADO - AUDIO NATIVO OGG_OPUS ACTIVADO');
         if (connection === 'close') startBot();
     });
 
@@ -56,8 +56,7 @@ async function startBot() {
         let esAudio = false;
 
         const systemPrompt = `Eres Maxor, asistente de la Clínica Maxor del Dr. Orlando Reyes. 
-        REGLA DE TEXTO: Usa 2 emojis (🦷, ✨). 
-        REGLA DE AUDIO: Sé breve y profesional.`;
+        Usa emojis (🦷, ✨). Sé breve y profesional. No digas que eres IA.`;
 
         // 1. TRANSCRIPCIÓN (WHISPER)
         if (msg.message.audioMessage) {
@@ -95,11 +94,11 @@ async function startBot() {
                 if (esAudio) {
                     const textoParaVoz = respuestaIA.replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '');
 
-                    // AMAZON POLLY CONFIGURADO PARA CELULARES
+                    // GENERACIÓN DE AUDIO NATIVO OGG OPUS
                     const command = new SynthesizeSpeechCommand({
                         Text: textoParaVoz,
-                        OutputFormat: "mp3", 
-                        SampleRate: "16000", // Frecuencia estándar de notas de voz
+                        OutputFormat: "ogg_opus", // Formato nativo de WhatsApp
+                        SampleRate: "16000",       // Frecuencia estándar
                         VoiceId: "Miguel", 
                         Engine: "standard" 
                     });
@@ -109,10 +108,10 @@ async function startBot() {
                     for await (const chunk of response.AudioStream) { chunks.push(chunk); }
                     const audioBuffer = Buffer.concat(chunks);
 
-                    // ENVÍO CON MIMETYPE COMPATIBLE
+                    // ENVÍO DE NOTA DE VOZ REAL
                     await sock.sendMessage(chatId, { 
                         audio: audioBuffer, 
-                        mimetype: 'audio/ogg; codecs=opus', // Obliga al móvil a reconocerlo como nota de voz
+                        mimetype: 'audio/ogg; codecs=opus', 
                         ptt: true 
                     });
                 } else {
