@@ -12,7 +12,7 @@ app.listen(process.env.PORT || 3000);
 
 // --- CLAVES DE API ---
 const GROQ_API_KEY = "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";
-const ELEVENLABS_API_KEY = "143d8e69fbac55d0664b9bfbd09f9409a3f7d718dfafdef9cabbf98bed734310";
+const ELEVENLABS_API_KEY = "sk_7ec9eb8924d0b2a40165fd043f8a291fba7cc18d7c0663d0";
 const VOICE_ID = "pNInz6obpgDQGcFmaJgB"; // Voz "Adam", muy profesional y cálida. Puedes cambiarla en ElevenLabs.
 
 async function startBot() {
