@@ -26,7 +26,7 @@ async function startBot() {
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: "silent" }),
-        browser: ["Maxor AI", "Chrome", "1.0.0"],
+        browser: ["Maxor AI", "Chrome", "20.0.04"],
         connectTimeoutMs: 60000,      // 60 segundos de espera inicial
         defaultQueryTimeoutMs: 0,
         keepAliveIntervalMs: 10000    // Mantiene la conexión activa cada 10 seg
