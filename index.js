@@ -9,9 +9,7 @@ const express = require('express');
 // --- SERVIDOR PARA RENDER ---
 const app = express();
 app.get('/', (req, res) => res.send('Maxor Bot - Modo Masculino Fluido 🦷🤵‍♂️'));
-// AJUSTE: Usar el puerto que asigne Render
-const PORT = process.env.PORT || 3000; 
-app.listen(PORT, () => console.log(`🌍 Servidor en puerto ${PORT}`));
+app.listen(process.env.PORT || 3000);
 
 // --- CONFIGURACIÓN DE APIS ---
 const GROQ_API_KEY = "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";
@@ -30,11 +28,8 @@ async function startBot() {
 
     sock.ev.on('connection.update', (update) => {
         const { connection, qr } = update;
-        // Imprime el link del QR en los logs
         if (qr) console.log("📢 QR: https://api.qrserver.com/v1/create-qr-code/?data=" + encodeURIComponent(qr));
         if (connection === 'open') console.log('✅ MAXOR CONECTADO - VOZ MASCULINA FLUIDA');
-        
-        // Reintento instantáneo (como lo tenías antes)
         if (connection === 'close') startBot();
     });
 
@@ -44,11 +39,14 @@ async function startBot() {
         if (!msg.message || msg.key.fromMe) return;
 
         const chatId = msg.key.remoteJid;
+
+        // --- 1. FILTRO DE GRUPOS ---
         if (chatId.endsWith('@g.us')) return;
 
         let text = msg.message.conversation || msg.message.extendedTextMessage?.text;
         let esAudio = !!msg.message.audioMessage;
 
+        // --- 2. SYSTEM PROMPT MEJORADO (LIBERTAD E INTELIGENCIA) ---
         const systemPrompt = `Eres Maxor, el asistente virtual de la Clínica Dental Maxor en Caracas.
         
         DINÁMICA DE CONVERSACIÓN:
@@ -58,6 +56,7 @@ async function startBot() {
         - RESTRICCIÓN: Si preguntan cosas fuera de la odontología, declina amablemente diciendo que tu especialidad es cuidar sonrisas.
         - FORMATO: Sé breve. No uses listas largas a menos que te las pidan.`;
 
+        // --- 3. PROCESAR AUDIO RECIBIDO ---
         if (esAudio) {
             await sock.sendPresenceUpdate('composing', chatId);
             const tempFile = `/tmp/audio_${Date.now()}.ogg`;
@@ -79,6 +78,7 @@ async function startBot() {
             } catch (e) { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); }
         }
 
+        // --- 4. RESPUESTA IA Y VOZ ---
         if (text) {
             try {
                 const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
@@ -89,9 +89,10 @@ async function startBot() {
                 let respuestaIA = res.data.choices[0].message.content;
 
                 if (esAudio) {
+                    // LIMPIEZA AGRESIVA PARA EVITAR ERROR 400 EN GOOGLE TTS
                     const textoParaVoz = respuestaIA
-                        .replace(/[\u1000-\uFFFF]+/g, '')
-                        .replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '')
+                        .replace(/[\u1000-\uFFFF]+/g, '') // Elimina emojis y símbolos Unicode
+                        .replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '') // Solo deja texto legible
                         .trim();
 
                     try {
@@ -101,7 +102,7 @@ async function startBot() {
                                 input: { text: textoParaVoz },
                                 voice: { 
                                     languageCode: "es-US", 
-                                    name: "es-US-Journey-D" 
+                                    name: "es-US-Journey-D" // VOZ MASCULINA LATINA
                                 },
                                 audioConfig: { 
                                     audioEncoding: "OGG_OPUS",
