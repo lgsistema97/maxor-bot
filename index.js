@@ -113,7 +113,7 @@ async function startBot() {
                         `https://texttospeech.googleapis.com/v1/text:synthesize?key=${GOOGLE_TTS_API_KEY}`,
                         {
                             input: { text: respuestaIA.replace(/[^\w\sáéíóúÁÉÍÓÚñÑ,.?!¿¡-]/g, '') },
-                            voice: { languageCode: "es-US", name: "es-US-Journey-F" },
+                            voice: { languageCode: "es-US", name: "es-US-Journey-D" },
                             audioConfig: { audioEncoding: "OGG_OPUS" }
                         }
                     );
