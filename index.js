@@ -1,49 +1,54 @@
-const { default: makeWASocket, useMultiFileAuthState, downloadContentFromMessage } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, downloadContentFromMessage, DisconnectReason } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const fs = require('fs');
 const axios = require('axios');
 const FormData = require('form-data');
 const express = require('express');
 
-// --- SERVIDOR PARA RENDER (Optimizado) ---
+// --- SERVIDOR PARA RENDER ---
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.status(200).send('Maxor Bot Activo 🦷🤵‍♂️'));
-app.get('/health', (req, res) => res.status(200).send('OK'));
-app.listen(PORT, '0.0.0.0', () => console.log(`🌍 Servidor en puerto ${PORT}`));
+app.get('/', (req, res) => res.send('Maxor Bot - Modo Masculino Fluido 🦷🤵‍♂️'));
+app.listen(PORT, '0.0.0.0', () => console.log(`🌍 Servidor escuchando en puerto ${PORT}`));
 
-// --- CONFIGURACIÓN DE APIS (Usa Variables de Entorno en Render) ---
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY;
+// --- CONFIGURACIÓN DE APIS (Usa Variables de Entorno) ---
+const GROQ_API_KEY = process.env.GROQ_API_KEY || "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";
+const GOOGLE_TTS_API_KEY = process.env.GOOGLE_TTS_API_KEY || "AIzaSyA9twZINwlgQ1s9w-brp9XS00cdl_EbF9U";
 
 async function startBot() {
-    // Usamos el nombre de sesión que ya tenías
+    // 1. Usamos una carpeta de sesión consistente
     const { state, saveCreds } = await useMultiFileAuthState('sesion_maxor_caracas_v1');
 
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: "silent" }),
-        browser: ["Ubuntu", "Chrome", "20.0.04"], // Identificador más estable
-        connectTimeoutMs: 60000
+        // 2. Browser actualizado para evitar bloqueos
+        browser: ["Ubuntu", "Chrome", "20.0.04"]
     });
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (update) => {
         const { connection, lastDisconnect, qr } = update;
-        
+
         if (qr) {
             console.log("************************************************");
-            console.log("📢 QR LINK: https://api.qrserver.com/v1/create-qr-code/?data=" + encodeURIComponent(qr));
+            console.log("📢 ESCANEA EL QR AQUÍ:");
+            console.log("https://api.qrserver.com/v1/create-qr-code/?data=" + encodeURIComponent(qr));
             console.log("************************************************");
         }
-        
+
         if (connection === 'open') console.log('✅ MAXOR CONECTADO - VOZ MASCULINA FLUIDA');
-        
+
         if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== 401;
-            console.log('⚠️ Conexión cerrada, reintentando...', shouldReconnect);
-            if (shouldReconnect) setTimeout(() => startBot(), 5000); // Espera 5s antes de volver
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const debeReintentar = statusCode !== DisconnectReason.loggedOut;
+            
+            // 3. Reintento con espera de 10 segundos (Evita el bucle infinito)
+            console.log(`⚠️ Conexión cerrada. Reintentando en 10s...`);
+            if (debeReintentar) {
+                setTimeout(() => startBot(), 10000);
+            }
         }
     });
 
@@ -59,10 +64,11 @@ async function startBot() {
         let esAudio = !!msg.message.audioMessage;
 
         const systemPrompt = `Eres Maxor, el asistente virtual de la Clínica Dental Maxor en Caracas.
+        DINÁMICA DE CONVERSACIÓN:
+        - PRESENTACIÓN: Solo si es inicio de charla.
         - TONO: Hombre profesional, amable y caraqueño.
-        - RESTRICCIÓN: Solo odontología. Sé breve y fluido.`;
+        - RESTRICCIÓN: Solo odontología. Sé breve.`;
 
-        // --- PROCESAR AUDIO ---
         if (esAudio) {
             await sock.sendPresenceUpdate('composing', chatId);
             const tempFile = `/tmp/audio_${Date.now()}.ogg`;
@@ -84,7 +90,6 @@ async function startBot() {
             } catch (e) { if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile); }
         }
 
-        // --- RESPUESTA IA Y VOZ ---
         if (text) {
             try {
                 const res = await axios.post("https://api.groq.com/openai/v1/chat/completions", {
