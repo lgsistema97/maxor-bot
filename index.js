@@ -12,7 +12,7 @@ app.get('/', (req, res) => res.send('Maxor Bot: Sistema de Vinculación Activo �
 app.listen(PORT, '0.0.0.0', () => console.log(`🌍 Servidor en puerto ${PORT}`));
 
 // --- CONFIGURACIÓN DE APIS Y NÚMERO ---
-const MI_NUMERO = "584121234567"; // CAMBIA ESTO: Tu número con código de país (ej. 58 para Venezuela)
+const MI_NUMERO = "584243835271"; // CAMBIA ESTO: Tu número con código de país (ej. 58 para Venezuela)
 const GROQ_API_KEY = "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";
 const GOOGLE_TTS_API_KEY = "AIzaSyA9twZINwlgQ1s9w-brp9XS00cdl_EbF9U";
 
